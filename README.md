@@ -111,8 +111,6 @@ MONGODB_URL=mongodb://localhost:27017
 MONGODB_DB_NAME=metaphor_detector
 ```
 
-⚠️ **Never commit real credentials to GitHub.**
-
 Get a Gemini API key from:
 [https://makersuite.google.com/app/apikey](https://makersuite.google.com/app/apikey)
 

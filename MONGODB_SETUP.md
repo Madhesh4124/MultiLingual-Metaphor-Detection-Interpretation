@@ -98,7 +98,7 @@ MONGODB_URL=mongodb://localhost:27017
 MONGODB_DB_NAME=metaphor_detector
 
 # For MongoDB Atlas (Cloud)
-MONGODB_URL=mongodb+srv://username:password@cluster.mongodb.net/
+MONGODB_URL=mongodb+srv://<username>:<password>@<cluster-url>/<db-name>
 MONGODB_DB_NAME=metaphor_detector
 ```
 
