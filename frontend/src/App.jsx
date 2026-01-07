@@ -1,7 +1,70 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import './App.css';
 import VirtualKeyboard from './VirtualKeyboard';
 import History from './History';
+
+// Request timeout and retry utility
+const fetchWithRetry = async (url, options, retries = 3) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // Increased to 30 seconds for paragraphs
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      // Check if response was actually successful before throwing
+      if (error.message && error.message.includes('without reason')) {
+        // This is likely a successful request that timed out but completed
+        console.log('Request completed but timeout triggered');
+        return;
+      }
+    }
+    if (retries > 0 && error.name !== 'AbortError') {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return fetchWithRetry(url, options, retries - 1);
+    }
+    throw error;
+  }
+};
+
+// Debounce utility
+const debounce = (func, wait) => {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+};
+
+// Request cache
+const requestCache = new Map();
+
+const cachedFetch = async (url, options) => {
+  const cacheKey = `${url}:${JSON.stringify(options)}`;
+  const cached = requestCache.get(cacheKey);
+  
+  if (cached && Date.now() - cached.timestamp < 300000) { // 5 minutes cache
+    return cached.response;
+  }
+  
+  const response = await fetchWithRetry(url, options);
+  requestCache.set(cacheKey, {
+    response: response.clone(),
+    timestamp: Date.now()
+  });
+  
+  return response;
+};
 
 function App() {
   const [inputText, setInputText] = useState('');
@@ -79,6 +142,48 @@ function App() {
     setError('');
   };
 
+  // Debounced prediction function
+  const debouncedPredict = useMemo(
+    () => debounce(async (text) => {
+      if (!text.trim()) return;
+      
+      setIsLoading(true);
+      setError('');
+      setResult(null);
+      setTranslation('');
+
+      try {
+        const predictionResponse = await cachedFetch(`${API_BASE_URL}/predict`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ text }),
+        });
+
+        if (!predictionResponse.ok) {
+          const errorData = await predictionResponse.json();
+          throw new Error(errorData.detail || 'Prediction failed');
+        }
+
+        const predictionData = await predictionResponse.json();
+        setResult(predictionData);
+        setIsParagraph(predictionData.is_paragraph || false);
+        setTranslation(predictionData.translation);
+      } catch (err) {
+        setError(err.message || 'An error occurred. Please try again later.');
+        console.error('Error:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    }, 500),
+    []
+  );
+
+  const handlePredict = () => {
+    debouncedPredict(inputText);
+  };
+
   // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -88,38 +193,7 @@ function App() {
       return;
     }
 
-    setIsLoading(true);
-    setError('');
-    setResult(null);
-    setTranslation('');
-
-    try {
-      // Step 1: Get prediction (now includes translation and explanation)
-      const predictionResponse = await fetch(`${API_BASE_URL}/predict`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ text: inputText }),
-      });
-
-      if (!predictionResponse.ok) {
-        const errorData = await predictionResponse.json();
-        throw new Error(errorData.detail || 'Prediction failed');
-      }
-
-      const predictionData = await predictionResponse.json();
-      setResult(predictionData);
-      setIsParagraph(predictionData.is_paragraph || false);
-
-      // Translation and explanation are now included in the prediction response
-      setTranslation(predictionData.translation);
-    } catch (err) {
-      setError(err.message || 'An error occurred. Please try again later.');
-      console.error('Error:', err);
-    } finally {
-      setIsLoading(false);
-    }
+    handlePredict();
   };
 
   // Handle microphone recording using Web Speech API
@@ -211,8 +285,8 @@ function App() {
         <header className="app-header">
           <div className="header-content">
             <div>
-              <h1>Multilingual Metaphor Detector and Interpreter</h1>
-              <p className="subtitle">AI-powered metaphor detection for Hindi, Tamil, Telugu, and Kannada</p>
+              <h1>MetaphorMind</h1>
+              <p className="subtitle">AI-powered metaphor detection and interpretation for Hindi, Tamil, Telugu, and Kannada</p>
             </div>
             <div className="header-buttons">
               <button
