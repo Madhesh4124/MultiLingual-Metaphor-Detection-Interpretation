@@ -675,3 +675,22 @@ body[data-theme="light"] .history-empty p {
 body[data-theme="light"] .empty-subtitle {
   color: #4a5568;
 }
+
+.history-item-lang-detail {
+  background: rgba(236, 72, 153, 0.2);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #f472b6;
+  border: 1px solid rgba(236, 72, 153, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+body[data-theme="light"] .history-item-lang-detail {
+  background: rgba(236, 72, 153, 0.1);
+  color: #d53f8c;
+  border-color: rgba(236, 72, 153, 0.2);
+}

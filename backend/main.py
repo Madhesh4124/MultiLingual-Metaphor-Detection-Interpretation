@@ -20,7 +20,6 @@ import re
 import whisper
 import tempfile
 from tenacity import retry, stop_after_attempt, wait_exponential
-import random
 from database import (
     connect_to_mongodb,
     close_mongodb_connection,
@@ -46,17 +45,17 @@ prediction_cache = {}
 interpretation_cache = {}
 CACHE_TTL = 3600  # 1 hour
 
-def get_cache_key(text: str) -> str:
+def get_cache_key(text: str, interpretation_language: str = "english") -> str:
     """Generate cache key for text"""
-    return hashlib.md5(text.encode()).hexdigest()
+    return hashlib.md5(f"{text}:{interpretation_language}".encode()).hexdigest()
 
-def get_interpretation_cache_key(text: str, language: str) -> str:
+def get_interpretation_cache_key(text: str, language: str, target_language: str = "english") -> str:
     """Generate cache key for interpretations"""
-    return f"{language}:{hashlib.md5(text.encode()).hexdigest()}"
+    return f"{language}:{target_language}:{hashlib.md5(text.encode()).hexdigest()}"
 
-def get_cached_prediction(text: str) -> Optional[dict]:
+def get_cached_prediction(text: str, interpretation_language: str = "english") -> Optional[dict]:
     """Get cached prediction if available and not expired"""
-    cache_key = get_cache_key(text)
+    cache_key = get_cache_key(text, interpretation_language)
     if cache_key in prediction_cache:
         cached_data = prediction_cache[cache_key]
         if time.time() - cached_data['timestamp'] < CACHE_TTL:
@@ -67,9 +66,9 @@ def get_cached_prediction(text: str) -> Optional[dict]:
             del prediction_cache[cache_key]
     return None
 
-def cache_prediction(text: str, result: dict):
+def cache_prediction(text: str, result: dict, interpretation_language: str = "english"):
     """Cache prediction result"""
-    cache_key = get_cache_key(text)
+    cache_key = get_cache_key(text, interpretation_language)
     prediction_cache[cache_key] = {
         'result': result,
         'timestamp': time.time()
@@ -120,6 +119,7 @@ LANGUAGE_MAP = {
 
 class TextInput(BaseModel):
     text: str
+    interpretation_language: Optional[str] = "english"
 
 class InterpretationData(BaseModel):
     translation: str  # Direct English translation of the metaphor
@@ -238,13 +238,13 @@ def split_into_sentences(text: str) -> List[str]:
     logger.info(f"Split text into {len(sentences)} sentence(s)")
     return sentences
 
-def generate_gemini_interpretation(text: str, language: str) -> InterpretationData:
+def generate_gemini_interpretation(text: str, language: str, target_language: str = "English") -> InterpretationData:
     """
     Generate multi-layered interpretation using Gemini API
-    Returns literal, emotional, philosophical, and cultural interpretations
+    Returns literal, emotional, philosophical, and cultural interpretations in the target language
     """
     # Check cache first
-    cache_key = get_interpretation_cache_key(text, language)
+    cache_key = get_interpretation_cache_key(text, language, target_language)
     if cache_key in interpretation_cache:
         logger.info(f"🎯 Using cached interpretation for: {text[:30]}...")
         return interpretation_cache[cache_key]
@@ -268,10 +268,12 @@ def generate_gemini_interpretation(text: str, language: str) -> InterpretationDa
             'hindi': 'Hindi',
             'tamil': 'Tamil',
             'telugu': 'Telugu',
-            'kannada': 'Kannada'
+            'kannada': 'Kannada',
+            'english': 'English'
         }
         
         language_name = lang_names.get(language, language.title())
+        target_language_name = lang_names.get(target_language.lower(), target_language.title())
         
         # Enhanced prompt for multi-layered interpretation
         prompt = f"""
@@ -280,25 +282,25 @@ The following sentence is written in {language_name}.
 
 Sentence: "{text}"
 
-Your task is to analyze the sentence carefully and output exactly **5 labeled lines** in this format:
+Your task is to analyze the sentence carefully and output exactly **5 labeled lines**
+in {target_language_name} (labels must remain in English).
 
-1. Translation: [Explain the true metaphorical meaning of the sentence in fluent English — not just literal words]
-2. Literal: [Translate the physical action described into a grammatically correct English sentence using standard English syntax (Subject + Verb + Object). Ignore the original word order.]
-3. Emotional: [Describe the emotion or feeling the metaphor conveys]
-4. Philosophical: [Explain the deeper life message, abstract thought, or wisdom behind the metaphor]
-5. Cultural: [Describe the Indian cultural or just a general culture, literary, or traditional context related to the metaphor]
+Translation: Translate the sentence into natural {target_language_name}, preserving any metaphorical expressions. Do NOT explain or paraphrase the metaphor.
+Literal: Translate the sentence word-for-word into grammatically correct {target_language_name}, even if the result sounds unnatural.
+Emotional: Describe the emotional state or feeling conveyed by the sentence in {target_language_name}.
+Philosophical: Explain the deeper abstract meaning or life insight behind the metaphor in {target_language_name}.
+Cultural: Describe the Indian or general cultural understanding of this metaphor in {target_language_name}.
 
 CRITICAL RULES:
-- **Always produce exactly 5 lines**, labeled in the same order (Translation, Literal, Emotional, Philosophical, Cultural).
-- Each line must begin with the label followed by a colon (e.g., "Translation:").
-- Do not number or add bullet points.
-- **Translation:** Explain the *intended meaning* of the metaphor in 2–3 natural sentences.
-- **Literal:** Must be a grammatically correct English rendering of the original text, as close to word-by-word as possible.
-- **Emotional, Philosophical, Cultural:** Each should be 1–2 sentences long, consistent with the translation’s meaning.
-- Avoid repetition — each layer should add new insight.
-- If the text is not metaphorical, respond with:
-  "Translation: No metaphor detected — literal sentence." and fill the other lines accordingly.
-- Do not include explanations, reasoning, examples, or extra commentary outside these 5 lines.
+- Always produce exactly 5 lines.
+- Each line must begin with its label followed by a colon.
+- Do NOT number, bullet, or add extra text.
+- Translation and Literal must be single-sentence outputs.
+- Emotional, Philosophical, and Cultural may be 1–2 sentences.
+- If the sentence is not metaphorical:
+  Translation: No metaphor detected — literal sentence. (translated to {target_language_name})
+  and complete the remaining lines accordingly.
+- Do not include explanations, reasoning, or commentary outside the 5 lines.
 
 Your response must contain exactly 5 labeled lines and nothing else.
 """
@@ -721,7 +723,7 @@ async def predict(input_data: TextInput):
             raise HTTPException(status_code=400, detail="Text too long. Please limit to 5000 characters.")
         
         # Check cache first
-        cached_result = get_cached_prediction(text)
+        cached_result = get_cached_prediction(text, input_data.interpretation_language)
         if cached_result:
             return PredictionResponse(**cached_result)
         
@@ -824,19 +826,14 @@ async def predict(input_data: TextInput):
             
             total_confidence += confidence
             
-            # Apply subtle confidence adjustment
-            if language in ['hindi', 'tamil']:
-                confidence = max(0.0, confidence - random.uniform(0.01, 0.05))
-            elif language in ['kannada', 'telugu']:
-                confidence = min(1.0, confidence + random.uniform(0.25, 0.35))
-            
             logger.info(f"Sentence: '{sentence[:50]}...' -> {sentence_label} ({confidence:.4f})")
             
             # Generate Gemini interpretation for this sentence (run in thread pool)
             interpretations = await asyncio.to_thread(
                 generate_gemini_interpretation,
                 sentence,
-                language
+                language,
+                input_data.interpretation_language
             )
             
             # Get Gemini's prediction for verification
@@ -870,12 +867,6 @@ async def predict(input_data: TextInput):
         # Determine overall label based on dominant frequency
         overall_label = "metaphor" if metaphor_count > normal_count else "normal"
         overall_confidence = total_confidence / len(sentences) if sentences else 0.0
-        
-        # Apply subtle confidence adjustment to overall
-        if language in ['hindi', 'tamil']:
-            overall_confidence = max(0.0, overall_confidence - random.uniform(0.01, 0.05))
-        elif language in ['kannada', 'telugu']:
-            overall_confidence = min(1.0, overall_confidence + random.uniform(0.25, 0.35))
         
         # Check overall verification status
         verified_sentences = [s for s in sentence_analyses if s.is_verified is True]
@@ -911,13 +902,14 @@ async def predict(input_data: TextInput):
             "sentences": sentences_data,
             "is_verified": is_fully_verified,
             "verification_status": verification_status,
+            "interpretation_language": input_data.interpretation_language,
             # Legacy fields for backward compatibility
             "translation": sentence_analyses[0].interpretations.translation if sentence_analyses else "",
             "explanation": ""  # This will be populated by the frontend if needed
         }
         
         # Cache the result
-        cache_prediction(text, response_data)
+        cache_prediction(text, response_data, input_data.interpretation_language)
         
         # Save to database (async, don't wait for it)
         try:

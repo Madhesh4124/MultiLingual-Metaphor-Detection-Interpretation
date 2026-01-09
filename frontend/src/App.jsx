@@ -6,8 +6,8 @@ import History from './History';
 // Request timeout and retry utility
 const fetchWithRetry = async (url, options, retries = 3) => {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000); // Increased to 30 seconds for paragraphs
-  
+  const timeoutId = setTimeout(() => controller.abort(), 90000); // Increased to 90 seconds for paragraphs
+
   try {
     const response = await fetch(url, {
       ...options,
@@ -18,14 +18,9 @@ const fetchWithRetry = async (url, options, retries = 3) => {
   } catch (error) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
-      // Check if response was actually successful before throwing
-      if (error.message && error.message.includes('without reason')) {
-        // This is likely a successful request that timed out but completed
-        console.log('Request completed but timeout triggered');
-        return;
-      }
+      throw new Error('Request timed out. The server is taking too long to respond.');
     }
-    if (retries > 0 && error.name !== 'AbortError') {
+    if (retries > 0) {
       await new Promise(resolve => setTimeout(resolve, 1000));
       return fetchWithRetry(url, options, retries - 1);
     }
@@ -52,17 +47,21 @@ const requestCache = new Map();
 const cachedFetch = async (url, options) => {
   const cacheKey = `${url}:${JSON.stringify(options)}`;
   const cached = requestCache.get(cacheKey);
-  
+
   if (cached && Date.now() - cached.timestamp < 300000) { // 5 minutes cache
-    return cached.response;
+    return cached.response.clone();
   }
-  
+
   const response = await fetchWithRetry(url, options);
-  requestCache.set(cacheKey, {
-    response: response.clone(),
-    timestamp: Date.now()
-  });
-  
+
+  // Only cache successful responses
+  if (response && response.ok) {
+    requestCache.set(cacheKey, {
+      response: response.clone(),
+      timestamp: Date.now()
+    });
+  }
+
   return response;
 };
 
@@ -76,6 +75,7 @@ function App() {
   const [error, setError] = useState('');
   const [translation, setTranslation] = useState('');
   const [speechLang, setSpeechLang] = useState('hi-IN'); // Default to Hindi
+  const [interpretationLang, setInterpretationLang] = useState('english'); // Default to English
   const [showKeyboard, setShowKeyboard] = useState(false);
   const [keyboardLang, setKeyboardLang] = useState('hindi');
   const [showHistory, setShowHistory] = useState(false);
@@ -97,28 +97,28 @@ function App() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
-      
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = true;
+
       recognitionRef.current.onstart = () => {
         setIsRecording(true);
         setError('');
       };
-      
+
       recognitionRef.current.onresult = (event) => {
         let transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
+        for (let i = 0; i < event.results.length; i++) {
           transcript += event.results[i][0].transcript;
         }
         setInputText(transcript);
         setRecordedAudio(null);
         setAudioBlob(null);
       };
-      
+
       recognitionRef.current.onerror = (event) => {
         setError(`Speech recognition error: ${event.error}`);
       };
-      
+
       recognitionRef.current.onend = () => {
         setIsRecording(false);
       };
@@ -144,9 +144,9 @@ function App() {
 
   // Debounced prediction function
   const debouncedPredict = useMemo(
-    () => debounce(async (text) => {
+    () => debounce(async (text, lang) => {
       if (!text.trim()) return;
-      
+
       setIsLoading(true);
       setError('');
       setResult(null);
@@ -158,7 +158,10 @@ function App() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ text }),
+          body: JSON.stringify({
+            text,
+            interpretation_language: lang
+          }),
         });
 
         if (!predictionResponse.ok) {
@@ -181,7 +184,7 @@ function App() {
   );
 
   const handlePredict = () => {
-    debouncedPredict(inputText);
+    debouncedPredict(inputText, interpretationLang);
   };
 
   // Handle form submission
@@ -211,7 +214,7 @@ function App() {
       setError('');
       setRecordedAudio(null);
       setAudioBlob(null);
-      
+
       // Set language for recognition
       const langMap = {
         'hi-IN': 'hi-IN',
@@ -369,6 +372,22 @@ function App() {
                 <option value="ta-IN">Tamil (தமிழ்)</option>
                 <option value="te-IN">Telugu (తెలుగు)</option>
                 <option value="kn-IN">Kannada (ಕನ್ನಡ)</option>
+              </select>
+            </div>
+
+            <div className="interpretation-lang-selector">
+              <label htmlFor="interpretation-lang">🧠 Interpretation Language:</label>
+              <select
+                id="interpretation-lang"
+                value={interpretationLang}
+                onChange={(e) => setInterpretationLang(e.target.value)}
+                disabled={isLoading}
+              >
+                <option value="english">English</option>
+                <option value="hindi">Hindi (हिंदी)</option>
+                <option value="tamil">Tamil (தமிழ்)</option>
+                <option value="telugu">Telugu (తెలుగు)</option>
+                <option value="kannada">Kannada (ಕನ್ನಡ)</option>
               </select>
             </div>
 

@@ -11,6 +11,7 @@ All trained models are hosted on **Hugging Face** and are automatically download
 
 * Multilingual metaphor detection (4 Indian languages)
 * Sentence-level and paragraph-level analysis
+* **Cross-lingual AI interpretation** (Get explanations in English, Hindi, Tamil, Telugu, or Kannada)
 * 5-layer AI interpretation (translation, literal, emotional, philosophical, cultural)
 * REST API built with FastAPI
 * Interactive React frontend
@@ -26,7 +27,7 @@ When a paragraph (multi-sentence input) is submitted:
 
 * The backend splits the text into individual sentences using both English and Indic punctuation.
 * Each sentence is analyzed for metaphoric content **individually**.
-* For every sentence, a 5-layer AI interpretation is generated.
+* For every sentence, a 5-layer AI interpretation is generated in the **selected target language** (English, Hindi, Telugu, Tamil, or Kannada).
 
 ### Context-Aware Metaphor Detection
 
@@ -196,8 +197,11 @@ Content-Type: application/json
 ```json
 {
   "text": "वह आसमान छू रहा है",
-  "is_paragraph": false
+  "is_paragraph": false,
+  "interpretation_language": "english" 
 }
+```
+*`interpretation_language` options: `english`, `hindi`, `tamil`, `telugu`, `kannada`*
 ```
 
 ---

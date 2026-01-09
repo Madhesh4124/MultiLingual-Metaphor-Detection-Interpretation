@@ -203,6 +203,11 @@ function History({ apiBaseUrl, onClose }) {
                       <span className={`badge badge-${item.label}`}>
                         {item.label === 'metaphor' ? '🎭' : '✅'} {item.label}
                       </span>
+                      {item.interpretation_language && (
+                        <span className="history-item-lang-detail">
+                          🧠 {item.interpretation_language.charAt(0).toUpperCase() + item.interpretation_language.slice(1)}
+                        </span>
+                      )}
                       <span className="history-item-lang">{item.language.toUpperCase()}</span>
                     </div>
                   </div>
