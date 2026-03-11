@@ -1,5 +1,5 @@
 
-# Multilingual Metaphor Detection System
+# Crosslingual Metaphor Detection System
 
 A production-ready NLP system for detecting metaphors in **Hindi, Tamil, Telugu, and Kannada** using fine-tuned transformer models.
 The project includes a **FastAPI backend**, **React frontend**, training scripts, and detailed documentation.
@@ -9,7 +9,7 @@ All trained models are hosted on **Hugging Face** and are automatically download
 
 ## 🚀 Features
 
-* Multilingual metaphor detection (4 Indian languages)
+* Crosslingual metaphor detection (4 Indian languages)
 * Sentence-level and paragraph-level analysis
 * **Cross-lingual AI interpretation** (Get explanations in English, Hindi, Tamil, Telugu, or Kannada)
 * 5-layer AI interpretation (translation, literal, emotional, philosophical, cultural)
@@ -231,7 +231,7 @@ DELETE /history
 
 This project demonstrates:
 
-* Multilingual NLP using Transformers
+* Crosslingual NLP using Transformers
 * FastAPI-based REST APIs
 * Full-stack integration (React + ML backend)
 * Clean ML project structuring
